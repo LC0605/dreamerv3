@@ -20,6 +20,34 @@ concat = lambda xs, a: jax.tree.map(lambda *x: jnp.concatenate(x, a), *xs)
 isimage = lambda s: s.dtype == np.uint8 and len(s.shape) == 3
 
 
+def last_valid_indices(mask, count):
+  """Return the final `count` valid time indices for each batch row.
+
+  Offline episodes are padded on the right for static JAX shapes. Selecting
+  `[:, -count:]` therefore chooses padding for every episode shorter than the
+  batch length. If a very short row has fewer than `count` valid positions,
+  repeat its first valid position rather than ever returning padding.
+  """
+  assert mask.ndim == 2, mask.shape
+  count = min(int(count), mask.shape[1])
+  positions = jnp.broadcast_to(jnp.arange(mask.shape[1]), mask.shape)
+  ranked = jnp.where(mask, positions, -1)
+  indices = jnp.argsort(ranked, axis=1)[:, -count:]
+  selected_valid = jnp.take_along_axis(mask, indices, axis=1)
+  first_valid = jnp.argmax(mask, axis=1)[:, None]
+  return jnp.where(selected_valid, indices, first_valid)
+
+
+def take_time(tree, indices):
+  """Gather a per-batch set of time indices from a tensor pytree."""
+  def take(value):
+    shape = (*indices.shape, *((1,) * (value.ndim - 2)))
+    gather = indices.reshape(shape)
+    gather = jnp.broadcast_to(gather, (*indices.shape, *value.shape[2:]))
+    return jnp.take_along_axis(value, gather, axis=1)
+  return jax.tree.map(take, tree)
+
+
 class Agent(embodied.jax.Agent):
 
   banner = [
@@ -404,11 +432,14 @@ class Agent(embodied.jax.Agent):
     # Imagination
     K = min(self.config.imag_last or T, T)
     H = self.config.imag_length
-    starts = self.dyn.starts(dyn_entries, dyn_carry, K)
+    start_indices = last_valid_indices(loss_mask.astype(bool), K)
+    selected_dyn_entries = take_time(dyn_entries, start_indices)
+    selected_repfeat = take_time(repfeat, start_indices)
+    starts = self.dyn.starts(selected_dyn_entries, dyn_carry, K)
     policyfn = lambda feat: sample(self.pol(self.feat2tensor(feat), 1))
     _, imgfeat, imgprevact = self.dyn.imagine(starts, policyfn, H, training)
     first = jax.tree.map(
-        lambda x: x[:, -K:].reshape((B * K, 1, *x.shape[2:])), repfeat)
+        lambda x: x.reshape((B * K, 1, *x.shape[2:])), selected_repfeat)
     imgfeat = concat([sg(first, skip=self.config.ac_grads), sg(imgfeat)], 1)
     lastact = policyfn(jax.tree.map(lambda x: x[:, -1], imgfeat))
     lastact = jax.tree.map(lambda x: x[:, None], lastact)
@@ -431,14 +462,16 @@ class Agent(embodied.jax.Agent):
         **self.config.imag_loss)
     losses.update({k: v.mean(1).reshape((B, K)) for k, v in los.items()})
     metrics.update(mets)
+    selected_mask = jnp.take_along_axis(loss_mask, start_indices, axis=1)
+    metrics['imag/valid_start_fraction'] = selected_mask.mean()
+    metrics['imag/min_valid_steps'] = loss_mask.sum(1).min()
 
     # Replay
     if self.config.repval_loss:
-      feat = sg(repfeat, skip=self.config.repval_grad)
+      feat = sg(selected_repfeat, skip=self.config.repval_grad)
       last, term, rew = [obs[k] for k in ('is_last', 'is_terminal', 'reward')]
+      last, term, rew = take_time((last, term, rew), start_indices)
       boot = imgloss_out['ret'][:, 0].reshape(B, K)
-      feat, last, term, rew, boot = jax.tree.map(
-          lambda x: x[:, -K:], (feat, last, term, rew, boot))
       inp = self.feat2tensor(feat)
       los, reploss_out, mets = repl_loss(
           last, term, rew, boot,
