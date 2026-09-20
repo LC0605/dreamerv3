@@ -109,7 +109,33 @@ python dreamerv3/dreamerv3/main.py \
 
 ## 7. 从当前进度继续训练
 
-### 7.1 所需资产
+### 7.1 从 GitHub Release 获取可移植包
+
+计划 Release tag：`recovery2b-1k-continuation`。Release 创建后，在 clone 根目录运行：
+
+```bash
+git clone https://github.com/LC0605/dreamerv3.git
+cd dreamerv3
+
+curl -fL -O \
+  https://github.com/LC0605/dreamerv3/releases/download/recovery2b-1k-continuation/uav-dreamer-recovery2b-1k-continuation.tar.gz
+curl -fL -O \
+  https://github.com/LC0605/dreamerv3/releases/download/recovery2b-1k-continuation/SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf uav-dreamer-recovery2b-1k-continuation.tar.gz
+(cd uav-dreamer-recovery2b-1k-continuation && sha256sum -c SHA256SUMS)
+```
+
+预期 tar.gz SHA-256：
+
+```text
+84b6c9c0eb093bbf9ae62c22195f3e6b6e4184de922e0a4031bc178528c2ffa1
+```
+
+如果 Release 页面尚无该 tag/资产，上述 URL 会失败；不要改为从普通 Git 获取
+checkpoint。请向维护者索取 staging 中已校验的 Release 工件。
+
+### 7.2 所需资产
 
 精确延续 Recovery2B-1k 离线分支，需要把以下资产放回相对路径：
 
@@ -124,14 +150,33 @@ outputs/dreamerv3/stageS3A_A1_Recovery2B_replay/
   manifest.json
 ```
 
-发布包中的 NPZ 必须是普通文件。当前本机 Replay 布局使用指向绝对路径的符号链接，
-直接复制链接目录会在别的机器失效。
+这些是历史运行的逻辑路径。可移植 Release 不要求复制到这里；包内 `continue.sh` 会直接
+使用解压目录中的 `checkpoint/` 和 `replay/`，避免覆盖或伪造历史 outputs。
+
+Release 包中有 100 个训练 NPZ 和 4 个 validation NPZ，全部是普通文件。当前开发机的
+原始 Replay 布局使用指向绝对路径的符号链接；这些链接已在 Release staging 中物化，
+不随包传播。
 
 `agent.pkl` 已包含世界模型、Actor、Value、slow value、主 optimizer、Actor optimizer、
 return/value normalization 及内部计数器。`step.pkl` 是外层 checkpoint step。
 Dreamer 链路不需要 PPO 的 VecNormalize 文件。
 
-### 7.2 延续命令
+### 7.3 推荐的可移植延续命令
+
+Release 包包含经过 smoke 检查的 `continue.sh`。它使用包内 checkpoint/Replay，默认把
+新结果写入一个全新 outputs 目录，并拒绝复用已有 logdir：
+
+```bash
+conda activate dreamer_uav
+cd /path/to/dreamerv3
+PYTHON_BIN=python \
+  bash uav-dreamer-recovery2b-1k-continuation/continue.sh
+```
+
+可选覆盖：`REPO_ROOT`、`PYTHON_BIN`、`LOGDIR`。脚本仍会执行 1000 次离线更新，因此在
+真正运行前必须确定 Gate；仅检查包时不要执行它。
+
+### 7.4 展开的等价命令
 
 下面命令从 Recovery2B-1k 权重开始，在相同 100-episode 离线集合上执行额外 1000 次
 更新，并写入一个全新目录。参数来自现有
@@ -186,6 +231,21 @@ python dreamerv3/dreamerv3/main.py \
 这条命令表达“精确延续实验”，不表示 Recovery2B 已获准成为下一阶段 parent。训练前仍应
 确定 Gate；训练后先运行 `scripts/evaluate_stage_s3a_recovery2.sh` 的完整 100 回合评测。
 
+### 7.5 已执行的无训练恢复验证
+
+发布前已在 `/tmp` 中从 Git commit archive 创建模拟 clone，解压包后完成：
+
+- 内外两级 SHA-256 校验；
+- 确认无符号链接；
+- config 解析为 `quadrotor_navigation` / `bc_distill`、batch 2×301；
+- `_episodes` 发现 train=100、validation=4；
+- CPU 初始化 Dreamer Agent；
+- 加载完整 checkpoint、主 optimizer、Actor optimizer 和 normalization state；
+- 恢复 counters：updates=39994、batches=39994、actions=78210；
+- 执行训练更新数：0。
+
+验证未访问原开发机 `outputs/`，也未启动训练。
+
 ## 8. 当前 checkpoint 信息
 
 | 名称 | 相对路径 | 用途 | 推荐作为 continuation parent |
@@ -202,14 +262,15 @@ python dreamerv3/dreamerv3/main.py \
 普通 Git 不包含完整 `outputs/`、Replay、checkpoint、metrics、trajectory 或 profiler。
 原因是它们合计约 9 GB、生成频繁，并会使代码历史不可维护。本地资产没有被删除。
 
-Recovery2B 精确 continuation 最小包为：
+Recovery2B 精确 continuation 的最终可移植目录为 9,801,813 字节（约 9.6 MiB，包含
+manifest、校验清单和 portable shell）；压缩后的 tar.gz 为 8,657,519 字节。核心资产为：
 
 | 内容 | 大小 |
 |---|---:|
 | Recovery2B-1k checkpoint | 8,036,172 bytes |
 | 100 个唯一 NPZ 物化后的 train/validation 数据集及布局 | 约 1,684,233 bytes |
 | 对应 `config.yaml` | 7,488 bytes |
-| 合计 | 约 9,727,893 bytes（9.28 MiB） |
+| 核心资产合计 | 约 9,727,893 bytes（9.28 MiB） |
 
 这类小型、人工选择的 continuation 包适合 GitHub Release，并附 SHA-256 清单；无需把
 全部 outputs 放进 Git LFS。若以后发布大量 Replay 或多阶段 checkpoint，使用对象存储/

@@ -10,7 +10,8 @@
 代码可直接 clone；checkpoint 和 Replay 不在普通 Git 中。继续当前训练前，请先阅读
 [`docs/TRAINING_HANDOFF.md`](docs/TRAINING_HANDOFF.md)，按其中路径放置 continuation
 资产。实际环境版本及 CPU/GPU 状态见
-[`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md)。训练资产尚未随首次源码上传发布。
+[`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md)。Recovery2B continuation 工件计划使用
+GitHub Release tag `recovery2b-1k-continuation` 发布，不会加入普通 Git 历史。
 
 本仓库保留了大量阶段训练脚本，用于追溯论文实验。脚本名称代表一次实验配置，
 不代表一份独立算法实现，也不应在未核对 parent checkpoint、输出目录和 Gate
@@ -90,7 +91,7 @@ outputs/dreamerv3/stageS2_Conservative_6000/ckpt/20260828T154503F849521
 
 最新研究分支 Recovery2B-1k 仅完成 20-episode quick Gate，尚未完成/通过完整 Gate，
 因此没有替代上述 baseline。精确延续 Recovery2B 还需要对应离线 Replay；详细资产清单、
-命令和已知退化见训练交接文档。
+Release 下载/校验命令、恢复 smoke test 结果和已知退化见训练交接文档。
 
 ## 已验证的 PPO 历史基线
 
