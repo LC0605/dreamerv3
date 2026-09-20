@@ -13,6 +13,7 @@ exec /home/user/miniconda3/envs/dreamer_uav/bin/python dreamerv3/dreamerv3/main.
   --logdir "$logdir" --configs quadrotor --script bc_distill \
   --run.from_checkpoint "$parent" --run.from_checkpoint_regex '.*' \
   --run.bc_dataset "$dataset" --run.bc_updates "$updates" --run.bc_validate_every 1000 \
+  --run.bc_candidate_every 500 \
   --run.bc_fixed_train False --run.bc_risk_stratified False \
   --run.bc_scene_balanced False --run.bc_curriculum_new_fraction 0.0 \
   --batch_size 2 --batch_length 301 --report_length 301 --replay_context 0 \

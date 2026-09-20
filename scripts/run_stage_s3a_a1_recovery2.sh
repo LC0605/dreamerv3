@@ -20,11 +20,25 @@ fi
 
 for updates in 1000 2000 3000 4000; do
   scripts/train_stage_s3a_a1_recovery2_4000.sh "$updates"
-  checkpoint="$train/ckpt/$(cat "$train/ckpt/latest")"
+  checkpoint="$train/candidates/update_$(printf '%09d' "$updates")"
   label="S3A_A1_Recovery2_U${updates}_Quick"
   scripts/evaluate_stage_s3a_recovery2.sh "$checkpoint" "$label" 20
-  /home/user/miniconda3/envs/dreamer_uav/bin/python scripts/check_recovery2_quick_gate.py \
-    --label "$label" --history outputs/dreamerv3/stageS3A_A1_Recovery2_quick_gate.json
+  selection="outputs/dreamerv3/checkpoint_selection/recovery2/${label}"
+  /home/user/miniconda3/envs/dreamer_uav/bin/python scripts/checkpoint_selector.py \
+    --checkpoint "$checkpoint" --update "$updates" \
+    --candidate-prefix "outputs/dreamerv3/eval_${label}" \
+    --parent-prefix outputs/dreamerv3/eval_S3A_A1_Recovery_Final \
+    --parent-eval random=outputs/dreamerv3/eval_S3A_A1_Recovery_Final_randomA1 \
+    --parent-checkpoint "$parent" \
+    --history outputs/dreamerv3/checkpoint_selection/recovery2/candidate_history.json \
+    --output "$selection/checkpoint_metrics.json" --top-k 3
+  screening=$(/home/user/miniconda3/envs/dreamer_uav/bin/python -c \
+    'import json,sys; print(json.load(open(sys.argv[1]))["screening"])' \
+    "$selection/checkpoint_metrics.json")
+  if [[ "$screening" != PASS ]]; then
+    echo "Stopping before another training window: screening=$screening"
+    exit 2
+  fi
 done
 
 checkpoint="$train/ckpt/$(cat "$train/ckpt/latest")"

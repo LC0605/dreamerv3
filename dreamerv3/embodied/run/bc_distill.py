@@ -1,8 +1,45 @@
 from pathlib import Path
+import datetime
+import json
+import subprocess
 
 import elements
 import embodied
 import numpy as np
+
+
+def _git_commit(directory):
+  try:
+    return subprocess.run(
+        ['git', '-C', str(directory), 'rev-parse', 'HEAD'],
+        check=True, capture_output=True, text=True).stdout.strip()
+  except (FileNotFoundError, subprocess.CalledProcessError):
+    return None
+
+
+def _record_candidate(checkpoint, args, update):
+  """Record provenance beside an immutable checkpoint candidate."""
+  checkpoint = Path(str(checkpoint)).resolve()
+  logdir = Path(str(args.logdir)).resolve()
+  try:
+    repo = subprocess.run(
+        ['git', '-C', str(logdir), 'rev-parse', '--show-toplevel'],
+        check=True, capture_output=True, text=True).stdout.strip()
+  except (FileNotFoundError, subprocess.CalledProcessError):
+    repo = Path.cwd()
+  record = {
+      'update': int(update),
+      'checkpoint_path': str(checkpoint),
+      'parent_checkpoint': str(args.from_checkpoint),
+      'config': str(logdir / 'config.yaml'),
+      'replay': str(args.bc_dataset),
+      'git_commit': _git_commit(repo),
+      'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+  }
+  (checkpoint / 'candidate.json').write_text(json.dumps(record, indent=2) + '\n')
+  history = logdir / 'candidate_checkpoints.jsonl'
+  with history.open('a') as handle:
+    handle.write(json.dumps(record) + '\n')
 
 
 def _episodes(directory, length):
@@ -211,6 +248,7 @@ def bc_distill(make_agent, make_logger, args):
     elements.checkpoint.load(args.from_checkpoint, dict(
         agent=lambda data: agent.load(data, regex=args.from_checkpoint_regex)))
   cp.load_or_save()
+  last_saved_step = int(step)
 
   for update in range(int(step), int(args.bc_updates)):
     train_carry, _, metrics = agent.train(train_carry, next(train_stream))
@@ -218,7 +256,10 @@ def bc_distill(make_agent, make_logger, args):
     if metrics:
       logger.add(metrics, prefix='train')
     current_step = int(step)
-    if current_step % args.bc_validate_every == 0 or current_step == args.bc_updates:
+    should_validate = (
+        current_step % args.bc_validate_every == 0 or
+        current_step == args.bc_updates)
+    if should_validate:
       # Reset recurrent state and cover the validation split once.
       valid_carry = agent.init_report(args.batch_size)
       agg = elements.Agg()
@@ -228,8 +269,22 @@ def bc_distill(make_agent, make_logger, args):
         agg.add(mets)
       logger.add(agg.result(), prefix='validation')
       logger.write()
+    candidate_every = int(args.bc_candidate_every)
+    should_candidate = bool(
+        candidate_every and current_step % candidate_every == 0)
+    if should_validate:
       cp.save()
+      last_saved_step = current_step
+    if should_candidate:
+      candidate = (
+          Path(str(args.logdir)) / 'candidates' /
+          f'update_{current_step:09d}')
+      cp.save(path=candidate)
+      _record_candidate(candidate, args, current_step)
 
-  cp.save()
+  # Preserve the final-checkpoint guarantee without creating a second,
+  # indistinguishable checkpoint when the final update was already saved.
+  if last_saved_step != int(step):
+    cp.save()
   logger.write()
   logger.close()

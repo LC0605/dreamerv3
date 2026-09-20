@@ -11,6 +11,7 @@ exec /home/user/miniconda3/envs/dreamer_uav/bin/python dreamerv3/dreamerv3/main.
   --run.from_checkpoint_regex '.*' \
   --run.bc_dataset outputs/dreamerv3/stageS3A_A1_Recovery2B_replay \
   --run.bc_updates 1000 --run.bc_validate_every 1000 \
+  --run.bc_candidate_every 500 \
   --run.bc_fixed_train False --run.bc_risk_stratified False \
   --run.bc_scene_balanced False --run.bc_curriculum_new_fraction 0.0 \
   --batch_size 2 --batch_length 301 --report_length 301 --replay_context 0 \

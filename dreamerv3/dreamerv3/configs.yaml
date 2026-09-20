@@ -73,6 +73,9 @@ defaults:
     bc_dataset: ''
     bc_updates: 0
     bc_validate_every: 100
+    # Save immutable evaluation candidates independently of loss/validation.
+    # Zero disables intermediate candidates for historical run scripts.
+    bc_candidate_every: 0
     bc_fixed_train: False
     bc_risk_stratified: False
     bc_scene_balanced: False
