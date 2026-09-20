@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /home/user/UAV_Dreamer
+export PYTHONPATH=/home/user/UAV_Dreamer/src
+export JAX_COMPILATION_CACHE_DIR=/home/user/UAV_Dreamer/outputs/dreamerv3/jax_compilation_cache
+
+exec /home/user/miniconda3/envs/dreamer_uav/bin/python dreamerv3/dreamerv3/main.py \
+  --logdir outputs/dreamerv3/stageS1f_temporal3_static_actor_distill \
+  --configs quadrotor \
+  --run.from_checkpoint outputs/dreamerv3/earlystop_snapshots/stageS1_temporal3_static_single_mixed/step_10170_20260825T103851F203286 \
+  --jax.platform cpu --jax.prealloc False --logger.outputs jsonl \
+  --replay_context 0 --agent.bc_scale 1.0 \
+  --agent.loss_scales.policy 0.0 --agent.loss_scales.value 0.0 \
+  --agent.loss_scales.repval 0.0 \
+  --env.quadrotor.max_steps 300 \
+  --env.quadrotor.arena_x 16.0 --env.quadrotor.arena_y 16.0 --env.quadrotor.arena_z 5.0 \
+  --env.quadrotor.boundary_margin 3.0 --env.quadrotor.boundary_guard_distance 0.0 \
+  --env.quadrotor.goal_distance_low 2.0 --env.quadrotor.goal_distance_high 4.0 \
+  --env.quadrotor.horizontal_speed_limit 0.5 --env.quadrotor.temporal_history 3 \
+  --env.quadrotor.obstacle_count 1 --env.quadrotor.obstacle_spawn_probability 1.0 \
+  --env.quadrotor.obstacle_lateral_offset 0.8 --env.quadrotor.obstacle_randomization_level 0 \
+  --env.quadrotor.dynamic_obstacles False --env.quadrotor.obstacle_layout corridor \
+  --env.quadrotor.safety_distance 0.5 --env.quadrotor.safety_weight 2.0 \
+  --env.quadrotor.ttc_reward_weight 2.0 --env.quadrotor.safety_projection False \
+  --agent.policy.minstd 0.03 --agent.imag_loss.actent 0.00001 --agent.opt.lr 0.000002 \
+  --run.steps 3000 --run.envs 1 --run.train_ratio 32 \
+  --run.log_every 60 --run.report_every 300 --run.save_every 60

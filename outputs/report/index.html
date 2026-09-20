@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>四旋翼动态避障优化报告</title>
+<style>body{font-family:system-ui,"Microsoft YaHei",sans-serif;max-width:1120px;margin:36px auto;padding:0 22px;color:#18202a;line-height:1.7;background:#f3f6f8}main{background:#fff;padding:36px 46px;border-radius:14px;box-shadow:0 3px 18px #0001}h1,h2{color:#123b5d}h2{border-bottom:2px solid #dbe8f2;padding-bottom:6px}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border:1px solid #ccd6df;padding:8px;text-align:center}th{background:#eaf2f8}img{max-width:100%;display:block;margin:18px auto;border-radius:8px}.good{color:#16803c;font-weight:700}code{background:#eef2f5;padding:2px 5px;border-radius:4px}</style></head>
+<body><main>
+<h1>四旋翼动态避障优化阶段汇报</h1><p>生成日期：2026-08-20　项目：<code>/home/user/UAV_Dreamer</code></p>
+<h2>阶段结论</h2><p>当前推荐方案为 <b>8 帧威胁排序 PPO + 动力学安全投影</b>。系统使用真实 CF2X 刚体、电机响应、240 Hz 物理积分、10 Hz 决策、起飞悬停和停机坪稳定到达判据。安全层只在 2.5 秒预测窗内稀疏修正速度，修正后仍经过加速度限制和底层飞控。</p>
+<img src="stage27_safety_comparison.png" alt="五类独立评测">
+<h2>独立评测（每类 100 回合）</h2>
+<table><tr><th>场景</th><th>威胁排序 PPO</th><th>推荐方案</th><th>变化</th></tr>
+<tr><td>普通随机</td><td>89% / 11%</td><td class="good">96% / 3%</td><td>成功 +7 pp，碰撞 -8 pp</td></tr>
+<tr><td>单横穿</td><td>84% / 15%</td><td class="good">95% / 4%</td><td>+11 / -11 pp</td></tr>
+<tr><td>双横穿</td><td>62% / 34%</td><td class="good">84% / 12%</td><td>+22 / -22 pp</td></tr>
+<tr><td>迎面</td><td>76% / 21%</td><td class="good">83% / 15%</td><td>+7 / -6 pp</td></tr>
+<tr><td>垂直三维</td><td>86% / 14%</td><td class="good">95% / 5%</td><td>+9 / -9 pp</td></tr></table>
+<h2>动力学稳定性</h2><table><tr><th>指标</th><th>普通随机</th><th>双横穿</th></tr><tr><td>平均速度</td><td>0.811 m/s</td><td>0.752 m/s</td></tr><tr><td>95% 倾角</td><td>7.99°</td><td>8.38°</td></tr><tr><td>P10 最小净空</td><td>0.226 m</td><td>0.062 m</td></tr><tr><td>投影激活率</td><td>11.1%</td><td>27.8%</td></tr></table>
+<h2>完整任务自动降落</h2><img src="../visualization/stage29_full_mission_autoland.gif" alt="完整任务自动降落"><p>PPO 动态避障到达停机坪上方后，依次执行定点悬停确认、0.12 m/s 下降、近地 0.05 m/s 拉平、接触/速度/姿态联合判定和 0.40 s 停桨。种子 10041 共 271 步，最终接触为 True、速度约 0、四电机转速为 0。全过程使用速度—姿态级联和刚体动力学，没有直接改写位置。</p><h2>双横穿可视化</h2><img src="../visualization/stage27_double_crossing_shield_dashboard.gif" alt="双横穿仿真"><p>种子 10041：121 步稳定到达，最终距离约 0.033 m，无碰撞、无越界。仪表板同时显示 8 帧 LiDAR、极坐标扫描、128 维融合特征、飞行遥测和安全投影修正。</p>
+<h2>关键产物</h2><ul><li>推荐权重：<code>outputs/ablations/stage27_shield_g060_m070/ppo_static_obstacle.zip</code></li><li>归一化统计：<code>outputs/ablations/stage27_shield_g060_m070/vec_normalize.pkl</code></li><li>评测：<code>outputs/evaluation/stage27_shield_*_100/metrics.json</code></li><li>自动测试：26 项全部通过</li></ul>
+</main></body></html>

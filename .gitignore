@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# JAX
+.jax_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS and editor temporary files
+.DS_Store
+*.tmp
+*.swp
+*.bak
+
+# Logs
+*.log
+
+# Local experiment archive. Keep checkpoints, replay, and full evaluation
+# artifacts outside ordinary Git; publish selected reports or model artifacts
+# explicitly after review.
+/outputs/*
+!/outputs/report/
+!/outputs/dreamerv3/
+/outputs/dreamerv3/*
+!/outputs/dreamerv3/*.md
+

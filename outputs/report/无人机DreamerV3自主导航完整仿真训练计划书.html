@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>基于DreamerV3的四旋翼自主导航完整仿真训练计划书</title>
+<style>
+@page{size:A4;margin:2.2cm 2cm}body{font-family:"Noto Serif CJK SC","SimSun",serif;font-size:11pt;line-height:1.65;color:#1f2937}
+h1{font-size:22pt;text-align:center;margin-top:2.5cm;color:#17365d}h2{font-size:16pt;color:#17365d;border-bottom:1.5px solid #5b9bd5;padding-bottom:4px;margin-top:24px}
+h3{font-size:13pt;color:#2f5597;margin-top:18px}p{text-align:justify;margin:7px 0}li{margin:3px 0}
+table{width:100%;border-collapse:collapse;margin:10px 0 16px;font-size:9.5pt}th,td{border:1px solid #9ca3af;padding:6px 7px;vertical-align:top}
+th{background:#d9eaf7;color:#17365d;text-align:center}.cover{page-break-after:always;text-align:center}.subtitle{font-size:15pt;margin-top:28px;color:#385d8a}
+.meta{margin-top:2.5cm;font-size:11pt;line-height:1.7}.toc{page-break-after:always}.toc p{margin:4px 0}.note{background:#eef6fc;border-left:4px solid #5b9bd5;padding:10px 14px;margin:12px 0}
+.warning{background:#fff7e6;border-left:4px solid #f4b183;padding:10px 14px;margin:12px 0}.formula{text-align:center;font-family:monospace;background:#f3f4f6;padding:8px}
+.flow{text-align:center;font-family:monospace;border:1px solid #9dc3e6;background:#f7fbff;padding:12px;line-height:1.8}.pagebreak{page-break-before:always}
+</style></head><body>
+<div class="cover"><h1>基于 DreamerV3 的四旋翼无人机<br>自主导航与动态避障<br>完整仿真训练计划书</h1>
+<div class="subtitle">结构化感知 · 世界模型 · 四旋翼动力学 · 课程训练 · PX4/Gazebo验证</div>
+<div class="meta"><p style="text-align:center">主训练平台：PyBullet</p><p style="text-align:center">研究对象：CF2X 四旋翼无人机</p>
+<p style="text-align:center">主算法：DreamerV3　对照算法：PPO</p><p style="text-align:center">版本：2.0　日期：2026年8月</p></div></div>
+<div class="toc"><h2>目录</h2>
+<p>1. 项目定位与研究边界</p><p>2. 研究目标与预期贡献</p><p>3. 总体技术路线</p><p>4. 软件、硬件与可复现环境</p>
+<p>5. 仿真任务与场景定义</p><p>6. 四旋翼动力学与分层控制</p><p>7. 观测、动作、奖励与终止接口</p>
+<p>8. DreamerV3与PPO算法方案</p><p>9. 从易到难的完整课程训练流程</p><p>10. 数据、Replay与检查点管理</p>
+<p>11. 独立评测与验收体系</p><p>12. 公平对比、消融与泛化实验</p><p>13. 可视化与失败分析</p>
+<p>14. PX4＋Gazebo软件在环验证</p><p>15. 风险控制与降级路线</p><p>16. 交付物、阶段门与时间安排</p></div>
+
+<h2>1. 项目定位与研究边界</h2>
+<p>本项目以四旋翼无人机为唯一对象，在含静态障碍、慢速动态障碍及少量强制冲突障碍的三维仿真空间中，研究基于DreamerV3世界模型的局部目标自主导航与动态避障。策略从结构化环境观测直接生成三维速度和偏航角速度指令；姿态稳定、电机分配和刚体运动由确定性底层控制器与物理引擎完成。</p>
+<p>项目以PyBullet为大规模训练与批量评测平台，以ROS 2、PX4 SITL和Gazebo为控制链路及动力学适配验证平台。研究结论限定于仿真证据，不外推为真实环境安全性或Sim2Real成功。</p>
+<table><tr><th>术语</th><th>本项目定义</th></tr>
+<tr><td>端到端导航</td><td>从结构化感知与自身状态直接输出任务层速度指令，不指像素直接控制电机。</td></tr>
+<tr><td>自主导航</td><td>已知局部目标点条件下，无碰撞、未越界地限时到达；不包含SLAM和全局规划。</td></tr>
+<tr><td>动态避障</td><td>对运动障碍在线感知与决策，形成绕行、减速或等待，不要求显式输出未来轨迹。</td></tr>
+<tr><td>复杂动态环境</td><td>16×16×5米空间、12个慢速动态障碍以及0～2个横穿、迎面或垂直强制冲突障碍。</td></tr></table>
+<h3>不作为主线的内容</h3><ul>
+<li>不做RGB图像端到端、目标检测、视觉跟踪、SLAM和全局地图规划。</li>
+<li>不增加独立LSTM/Transformer轨迹预测器，运动信息由RSSM隐状态建模。</li>
+<li>不让强化学习直接输出四电机转速；底层姿态稳定使用确定性飞控。</li>
+<li>不在Gazebo中从零大规模训练，不把实机飞行列为本阶段必做验收。</li>
+<li>自动降落作为工程状态机，不与纯导航算法收益混为一谈。</li></ul>
+
+<h2>2. 研究目标与预期贡献</h2>
+<p>总体目标是构建可复现、符合四旋翼动力学、可与PPO公平比较的DreamerV3导航系统，使无人机在稠密慢动态障碍与突发强制冲突共存的环境中平稳到达目标，并完成软件在环迁移验证。</p>
+<h3>核心研究问题</h3><ol>
+<li>RSSM能否从短时LiDAR、自身运动和障碍相对状态中学习有用的动态环境模型？</li>
+<li>DreamerV3是否能以更少环境交互达到与PPO相当或更好的动态避障性能？</li>
+<li>世界模型能否改善迎面、双横穿和垂直冲突中的提前避让、最小净空与尾部风险？</li>
+<li>世界模型、时序观测、威胁排序和安全投影各自贡献多少？</li>
+<li>策略在噪声、延迟、轨迹变化和轻微动力学偏差下是否保持可接受性能？</li></ol>
+<h3>贡献定位</h3><ul>
+<li>面向四旋翼动态导航的DreamerV3环境适配、训练课程和系统化评测流程。</li>
+<li>“稠密慢障碍＋少量高威胁冲突”的场景设计，兼顾可预测性与真实避障检验。</li>
+<li>相同动力学、观测、动作、奖励和测试种子下的DreamerV3/PPO公平比较。</li>
+<li>世界模型、短时观测、威胁排序和安全投影的分层消融。</li></ul>
+<div class="note">贡献不表述为发明全新DreamerV3，而表述为动态无人机导航中的世界模型实现、训练方法、风险分析和仿真验证。</div>
+
+<h2>3. 总体技术路线</h2>
+<div class="flow">结构化观测（飞行状态＋目标＋LiDAR＋威胁障碍）<br>↓<br>
+DreamerV3编码器 → RSSM隐状态 → 观测/奖励/连续性预测<br>↓<br>
+潜在空间想象轨迹 → Actor-Critic速度策略<br>↓<br>
+可选安全速度投影 → 加速度限制 → 速度—姿态级联控制<br>↓<br>
+X型电机分配 → 电机响应 → 240 Hz PyBullet刚体积分<br>↓<br>下一观测、奖励、终止和评测指标</div>
+<p>实施遵循“先验证物理环境，再证明任务可学习；先无障碍，再静态；先单动态，再多障碍；最后压力测试和工程迁移”。每阶段必须通过独立确定性评测才能晋级。</p>
+
+<h2>4. 软件、硬件与可复现环境</h2>
+<table><tr><th>类别</th><th>固定方案</th><th>说明</th></tr>
+<tr><td>操作系统</td><td>Ubuntu 22.04 LTS</td><td>训练、评测和Gazebo验证固定同一系统。</td></tr>
+<tr><td>物理仿真</td><td>PyBullet，240 Hz</td><td>无界面训练；GUI只用于检查和录像。</td></tr>
+<tr><td>环境接口</td><td>Gymnasium</td><td>统一reset、step、空间和终止语义。</td></tr>
+<tr><td>DreamerV3</td><td>JAX，小型RSSM起步</td><td>独立环境，固定上游提交号和依赖。</td></tr>
+<tr><td>PPO</td><td>PyTorch＋Stable-Baselines3</td><td>使用同一物理环境和测试实例。</td></tr>
+<tr><td>工程验证</td><td>ROS 2 Humble＋PX4 SITL＋Gazebo</td><td>固定PX4发行版本。</td></tr>
+<tr><td>硬件建议</td><td>内存≥16 GB、显存建议≥12 GB、磁盘≥100 GB</td><td>CPU可做小模型验证，最终多种子训练建议GPU。</td></tr></table>
+<p>每个实验保存代码提交号、解析后配置、随机种子、依赖、模型、训练指标和评测结果。不同观测维度不得复用同一日志目录。</p>
+
+<h2>5. 仿真任务与场景定义</h2>
+<table><tr><th>项目</th><th>最终压力测试参数</th></tr>
+<tr><td>场地</td><td>16×16×5米三维空间，边界明确。</td></tr>
+<tr><td>起终点距离</td><td>最终6～10米；课程由1米逐级扩展。</td></tr>
+<tr><td>慢速动态障碍</td><td>12个箱体或圆柱体，水平半尺寸0.20～0.35米，高1.20～2.80米。</td></tr>
+<tr><td>常规速度</td><td>0.08～0.15 m/s，运动幅度约0.60米，往返或受限随机运动。</td></tr>
+<tr><td>强制冲突</td><td>0～2个；横穿、迎面或垂直冲突。</td></tr>
+<tr><td>强制冲突速度</td><td>课程0.30～0.70 m/s，极限评测最高1.0 m/s。</td></tr>
+<tr><td>可通行性</td><td>起终点安全净空，场景生成后进行几何可通行检查。</td></tr></table>
+<p>12个慢障碍形成稠密且连续变化的通道，适合RSSM学习环境规律；少量强制冲突防止策略仅靠静态几何捷径。16×16×5米与障碍尺寸匹配，避免把场地无解误判成算法不足。</p>
+<h3>标准场景集合</h3><ul>
+<li>S0：无障碍随机目标。</li><li>S1：固定单静态障碍。</li><li>S2：3～12个随机静态障碍。</li>
+<li>D0：12个慢动态障碍，无强制冲突。</li><li>D1：D0＋单横穿。</li><li>D2：D0＋双横穿。</li>
+<li>D3：D0＋迎面冲突。</li><li>D4：D0＋垂直冲突。</li><li>G：未见轨迹、噪声、延迟和动力学扰动。</li></ul>
+
+<h2>6. 四旋翼动力学与分层控制</h2>
+<p>策略不得直接修改无人机位置、姿态或速度。每个10 Hz动作先经过限幅和加速度限制，再由速度—姿态级联控制器计算总推力与姿态力矩，经CF2X电机混控和电机响应施加于刚体，由PyBullet以240 Hz积分。</p>
+<table><tr><th>参数</th><th>早期课程</th><th>最终配置</th></tr>
+<tr><td>水平速度</td><td>0.6 m/s</td><td>1.0 m/s</td></tr><tr><td>垂直速度</td><td>0.3 m/s</td><td>0.4 m/s</td></tr>
+<tr><td>偏航角速度</td><td>0.5 rad/s</td><td>0.5 rad/s</td></tr><tr><td>水平加速度</td><td>0.6～1.0 m/s²</td><td>1.5 m/s²</td></tr>
+<tr><td>垂直加速度</td><td>0.3～0.5 m/s²</td><td>0.6 m/s²</td></tr><tr><td>决策/物理频率</td><td>10/240 Hz</td><td>10/240 Hz</td></tr></table>
+<div class="flow">起飞 → 定点悬停 → 导航/避障 → 停机坪上空对准 → 稳定保持 → 分段下降 → 接触确认 → 停桨</div>
+<p>强化学习负责导航避障；起飞、终端悬停、下降、接触和停桨使用确定性状态机。后续增加障碍侵入或姿态异常时的复飞逻辑。</p>
+
+<h2>7. 观测、动作、奖励与终止接口</h2>
+<h3>统一观测</h3><ul>
+<li>自身位置、姿态四元数、世界系线速度和机体系角速度。</li>
+<li>目标相对位置、距离及必要边界信息。</li>
+<li>16线水平环形LiDAR，固定量程并归一化。</li>
+<li>威胁排序后的3个关键障碍相对位置、尺寸和相对速度，不足补零。</li>
+<li>上一步实际动作。</li>
+<li>主时序实验使用8帧LiDAR/障碍历史，单帧、4帧和8帧作为消融。</li></ul>
+<h3>统一动作</h3><div class="formula">a = [vx_world, vy_world, vz_world, yaw_rate]，统一归一化至[-1,1]</div>
+<p>主接口采用局部世界系速度，以匹配目标定义和PX4 Offboard局部速度控制。机体系动作仅作为偏航不变性消融。</p>
+<h3>六项主奖励</h3><div class="formula">r = r_progress + r_goal + r_collision + r_danger + r_time + r_smooth</div>
+<table><tr><th>奖励</th><th>原则</th><th>对应指标</th></tr>
+<tr><td>进度</td><td>相邻决策目标距离减少量</td><td>距离、路径效率</td></tr>
+<tr><td>到达</td><td>满足目标半径与稳定性后一次性奖励</td><td>成功率</td></tr>
+<tr><td>碰撞/越界</td><td>物理接触或出界终止惩罚</td><td>碰撞率、越界率</td></tr>
+<tr><td>危险距离</td><td>净空低于阈值的连续惩罚</td><td>最小净空</td></tr>
+<tr><td>时间</td><td>每步固定小惩罚</td><td>导航时间</td></tr>
+<tr><td>动作变化</td><td>惩罚相邻实际动作差</td><td>平稳性</td></tr></table>
+<p>TTC、边界软惩罚、到达速度奖励和安全投影不得混入主算法比较，分别作为消融或工程增强；降落奖励不进入纯导航主表。</p>
+<h3>终止语义</h3><ul>
+<li>成功：限时、无碰撞、未越界并进入目标区域；稳定到达同时满足速度和保持时间。</li>
+<li>is_terminal：成功、碰撞或越界；截断：仅达到最大步数。</li>
+<li>DreamerV3必须区分真实终止与超时，正确学习连续性。</li></ul>
+
+<h2>8. DreamerV3与PPO算法方案</h2>
+<div class="flow">Encoder → RSSM（确定性状态＋离散随机状态）→ Decoder / Reward / Continue<br>
+RSSM潜在状态 → 想象H步 → Actor-Critic更新</div>
+<p>早期使用约1M参数小模型；进入多动态障碍后再评估约12M参数。扩模必须在相同数据预算下消融，不能把更多参数的收益等同于世界模型机制收益。</p>
+<p>PPO使用相同观测、动作、奖励、终止、训练分布和测试实例。最佳PPO可用于Replay演示数据，但其动作不得混入DreamerV3在线评测。</p>
+<table><tr><th>方法</th><th>世界模型</th><th>安全投影</th></tr>
+<tr><td>PPO</td><td>无</td><td>无</td></tr><tr><td>PPO＋Shield</td><td>无</td><td>有</td></tr>
+<tr><td>DreamerV3</td><td>有</td><td>无</td></tr><tr><td>DreamerV3＋Shield</td><td>有</td><td>有</td></tr></table>
+
+<h2 class="pagebreak">9. 从易到难的完整课程训练流程</h2>
+<p>每阶段只增加一个主要难度来源，以固定种子确定性评测晋级，不以训练回报或精选视频晋级。</p>
+<table><tr><th>阶段</th><th>场景</th><th>学习目标</th><th>建议步数</th><th>晋级门槛</th></tr>
+<tr><td>P0 冒烟</td><td>无障碍，200～1000步</td><td>接口、Replay、RSSM、日志</td><td>≤1千</td><td>无错误，损失有限</td></tr>
+<tr><td>P1 短目标</td><td>1～2米，无障碍，固定高度</td><td>接近、减速、到达</td><td>5万</td><td>100回合成功≥90%</td></tr>
+<tr><td>P2 中目标</td><td>2～4米，无障碍</td><td>稳定三维导航</td><td>5万</td><td>成功≥90%，越界≤5%</td></tr>
+<tr><td>P3 长目标</td><td>4～8米，再到6～10米</td><td>长航程与效率</td><td>5～10万</td><td>成功≥90%</td></tr>
+<tr><td>P4 单静态固定</td><td>一个阻挡航线障碍</td><td>形成绕行</td><td>5万</td><td>成功≥90%，碰撞≤5%</td></tr>
+<tr><td>P5 单静态随机</td><td>位置尺寸随机</td><td>几何泛化</td><td>5万</td><td>成功≥90%</td></tr>
+<tr><td>P6 多静态</td><td>3→6→12个静态障碍</td><td>通道选择和三维绕行</td><td>每级5万</td><td>最终成功≥90%</td></tr>
+<tr><td>P7 单动态</td><td>一个0.08～0.15 m/s障碍</td><td>运动、等待与绕行</td><td>5～10万</td><td>成功≥85%，碰撞≤10%</td></tr>
+<tr><td>P8 多动态</td><td>3→6→12个慢动态障碍</td><td>稠密动态通道</td><td>每级10万</td><td>12障碍成功≥80%</td></tr>
+<tr><td>P9 单冲突</td><td>12慢障碍＋1强制冲突</td><td>提前避让</td><td>10～20万</td><td>各类成功≥80%</td></tr>
+<tr><td>P10 双冲突</td><td>12慢障碍＋2强制冲突</td><td>多威胁取舍</td><td>20万以上</td><td>成功≥80%，碰撞≤10%</td></tr>
+<tr><td>P11 鲁棒性</td><td>噪声、延迟、风、动力学变化</td><td>泛化与迁移准备</td><td>按需</td><td>相对下降≤15点</td></tr>
+<tr><td>P12 完整任务</td><td>起飞、避障、停机坪、降落</td><td>任务闭环</td><td>小规模微调</td><td>导航/降落分别统计</td></tr></table>
+<h3>最终场景混合</h3><ul><li>50%：12个普通慢动态障碍。</li><li>25%：12慢障碍＋1个随机冲突。</li>
+<li>25%：12慢障碍＋2个随机冲突。</li></ul>
+<p>横穿、迎面、垂直在冲突样本内均匀或按失败率自适应采样。下一训练窗口最多50%采样主要失败类型，其余保持原分布，防止遗忘。</p>
+
+<h2>10. 数据、Replay与检查点管理</h2>
+<ul>
+<li>每个transition包含观测、动作、总奖励、奖励分项、is_first、is_last、is_terminal、场景种子和诊断指标。</li>
+<li>日志诊断字段不进入智能体观测和Replay。</li>
+<li>可使用规则策略或PPO成功轨迹预填Replay，但记录来源、数量和比例。</li>
+<li>改变观测维度必须新建Replay；只改变场景难度时可迁移权重并重新采集。</li>
+<li>每阶段保存迁移初始点、最佳验证点和最终点；最佳点按固定验证成功率选择，碰撞率作为并列条件。</li>
+<li>长期保留最佳/最终权重、配置、指标和评测；中间权重在复现后归档。</li>
+<li>训练使用持久会话，系统重启从最近完整检查点恢复。</li></ul>
+
+<h2>11. 独立评测与验收体系</h2>
+<ul>
+<li>训练、验证和测试种子严格分开；测试采用确定性策略，不更新网络或Replay。</li>
+<li>每种场景至少100～200回合；论文主结果使用3个训练随机种子。</li>
+<li>DreamerV3与PPO使用相同场景实例清单，而不仅是相同概率分布。</li>
+<li>报告均值、标准差、95%置信区间和最差分位。</li></ul>
+<table><tr><th>指标</th><th>定义</th><th>目标</th></tr>
+<tr><td>成功率</td><td>无碰撞、未越界、限时到达</td><td>静态≥90%，动态≥80%</td></tr>
+<tr><td>碰撞率</td><td>与障碍物理接触</td><td>动态≤10%</td></tr>
+<tr><td>越界率</td><td>离开有效边界</td><td>≤5%</td></tr>
+<tr><td>超时率</td><td>达到最大步数仍未终止</td><td>单独报告</td></tr>
+<tr><td>导航时间</td><td>导航开始至稳定到达</td><td>越低越好</td></tr>
+<tr><td>路径长度比</td><td>实际路径/直线距离</td><td>兼顾效率与安全</td></tr>
+<tr><td>最小安全距离</td><td>回合最小障碍净空</td><td>不低于阈值</td></tr>
+<tr><td>动作变化量</td><td>相邻动作差</td><td>越低越平稳</td></tr>
+<tr><td>推理延迟</td><td>单步墙钟时间</td><td>P95＜100 ms</td></tr>
+<tr><td>样本效率</td><td>达到指定成功率所需环境步</td><td>DreamerV3核心指标</td></tr></table>
+<p>额外报告最差10%回合的净空、时间和失败类型。迎面、双横穿和垂直冲突独立统计，避免普通场景掩盖尾部风险。</p>
+
+<h2>12. 公平对比、消融与泛化实验</h2>
+<table><tr><th>变量</th><th>设置</th><th>研究问题</th></tr>
+<tr><td>世界模型</td><td>PPO vs DreamerV3</td><td>潜在想象是否有收益？</td></tr>
+<tr><td>时序</td><td>单帧/4帧/8帧</td><td>短时历史有多重要？</td></tr>
+<tr><td>相对速度</td><td>有/无</td><td>RSSM能否隐式推断运动？</td></tr>
+<tr><td>威胁排序</td><td>最近距离/TTC排序</td><td>3个固定槽位如何选择？</td></tr>
+<tr><td>安全投影</td><td>关闭/开启</td><td>安全层贡献多少？</td></tr>
+<tr><td>奖励</td><td>六项基础/增加TTC</td><td>收益是否来自塑形？</td></tr>
+<tr><td>模型规模</td><td>约1M/约12M</td><td>容量是否主导结果？</td></tr></table>
+<h3>泛化矩阵</h3><ul>
+<li>未见起终点和更长距离。</li><li>未见障碍相位、轨迹组合和冲突方向。</li>
+<li>LiDAR/状态噪声、随机丢帧。</li><li>100～300 ms观测或控制延迟。</li>
+<li>质量、惯量、电机推力和响应变化。</li><li>持续侧风和短时阵风。</li></ul>
+<p>目标为相对标准测试下降不超过15个百分点；未达到时保留失败分布并明确适用边界。</p>
+
+<h2>13. 可视化与失败分析</h2>
+<h3>训练监控</h3><ul><li>RSSM动力学、表示、观测、奖励和连续性损失。</li>
+<li>Actor、Value、想象回报、策略熵和梯度。</li><li>成功、碰撞、越界、超时和Replay统计。</li>
+<li>训练速度、CPU/GPU、显存和内存。</li></ul>
+<h3>仿真实况</h3><ul><li>PyBullet画面、轨迹、起终点和障碍。</li><li>8帧LiDAR、极坐标扫描、威胁障碍状态。</li>
+<li>RSSM或编码特征。</li><li>距离、速度、净空、动作和安全修正。</li>
+<li>降落平台误差、高度、接触和电机转速。</li></ul>
+<p>失败分类包括碰撞、越界、超时、飞过终点、目标附近盘旋、贴边捷径、狭窄通道犹豫、迎面反应过晚、双威胁选择错误、垂直冲突忽略和降落不稳。每类保留种子、轨迹、遥测和视频。</p>
+
+<h2>14. PX4＋Gazebo软件在环验证</h2>
+<div class="flow">训练策略 → 观测转换 → 单位/坐标转换 → 速度/偏航指令 → ROS 2 → PX4 Offboard → Gazebo x500</div>
+<ol><li>固定PX4、ROS 2和Gazebo版本，验证通信与Offboard状态机。</li>
+<li>独立完成起飞、悬停、速度控制、刹停和降落。</li>
+<li>核对ENU/NED、世界/机体坐标、符号、单位、频率和限幅。</li>
+<li>加载策略完成固定目标无障碍导航。</li><li>加入静态障碍，再加入一个低速动态障碍。</li>
+<li>测试推理延迟、控制超时保护和策略失效刹停。</li></ol>
+<p>至少20次固定流程，目标成功率≥70%，P95推理延迟＜100 ms。结果只用于工程可行性，不作为实机或Sim2Real证明。</p>
+
+<h2>15. 风险控制与降级路线</h2>
+<table><tr><th>风险</th><th>信号</th><th>处理</th></tr>
+<tr><td>DreamerV3不稳定</td><td>想象回报升高但真实成功下降</td><td>回退最佳点、缩短想象、降低学习率、检查奖励模型。</td></tr>
+<tr><td>算力不足</td><td>训练周期过长或显存不足</td><td>小模型、单环境、小batch；保留PPO完整基线。</td></tr>
+<tr><td>Replay质量差</td><td>大量短失败、无成功样本</td><td>降低难度，用规则/PPO预填，混合近期与均匀采样。</td></tr>
+<tr><td>奖励漏洞</td><td>贴边、等待、高速飞过</td><td>记录分项，固定六项奖励，用行为指标审计。</td></tr>
+<tr><td>场景无解</td><td>不同算法同种子均失败</td><td>几何可通行检查，无解样本单独标注。</td></tr>
+<tr><td>Gazebo下降</td><td>振荡、方向错误、延迟</td><td>固定场景校准接口，仅小规模微调。</td></tr>
+<tr><td>PX4超期</td><td>通信或版本长期阻塞</td><td>降级为固定流程，不影响PyBullet主结论。</td></tr></table>
+<div class="warning">连续两次独立评测退化时停止增加难度，回退最佳检查点并分析；不得只延长训练掩盖接口、奖励或场景问题。</div>
+
+<h2>16. 交付物、阶段门与时间安排</h2>
+<h3>最终交付物</h3><ul>
+<li>可复现的PyBullet CF2X动态导航环境。</li><li>DreamerV3训练、恢复、评测和录像入口。</li>
+<li>PPO公平基线与安全投影版本。</li><li>无障碍、静态、动态、强冲突和泛化权重与配置。</li>
+<li>每种主场景100～200回合、3随机种子的统计。</li><li>训练曲线、消融图、失败分析和演示视频。</li>
+<li>PX4＋Gazebo SITL演示与日志。</li><li>研究报告、论文初稿和复现README。</li></ul>
+<table><tr><th>里程碑</th><th>产物</th><th>阶段门</th></tr>
+<tr><td>M1 基础导航</td><td>无障碍权重与100回合评测</td><td>成功≥90%</td></tr>
+<tr><td>M2 静态导航</td><td>3～12静态障碍与PPO对比</td><td>成功≥90%，碰撞≤5%</td></tr>
+<tr><td>M3 动态导航</td><td>12慢障碍、单/双冲突</td><td>成功≥80%，碰撞≤10%</td></tr>
+<tr><td>M4 研究闭环</td><td>三种子、消融、泛化、尾部风险</td><td>数据完整可复现</td></tr>
+<tr><td>M5 工程闭环</td><td>PX4/Gazebo 20次流程</td><td>成功≥70%，延迟达标</td></tr></table>
+<table><tr><th>周期</th><th>主要工作</th></tr>
+<tr><td>第1～2月</td><td>冻结协议，完成无障碍与静态课程。</td></tr><tr><td>第3～5月</td><td>单动态、多动态、12慢障碍和强制冲突。</td></tr>
+<tr><td>第6～7月</td><td>PPO/DreamerV3公平复训和三随机种子。</td></tr><tr><td>第8月</td><td>消融、样本效率、尾部风险和失败分析。</td></tr>
+<tr><td>第9月</td><td>噪声、延迟和动力学泛化。</td></tr><tr><td>第10月</td><td>ROS 2、PX4和Gazebo软件在环。</td></tr>
+<tr><td>第11～12月</td><td>补充实验、代码整理、报告、论文和视频。</td></tr></table>
+<h2>结语</h2>
+<p>本计划以“物理可信、接口统一、课程渐进、评测独立、结论克制”为原则。最终目标不是单纯展示无人机能够绕障，而是形成世界模型是否真正改善动态四旋翼导航的完整证据链：公平基线、样本效率、困难冲突安全收益、系统消融、未见场景泛化和PX4/Gazebo工程闭环。</p>
+</body></html>

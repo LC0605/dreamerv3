@@ -1,0 +1,45 @@
+project: UAV_Dreamer
+model_dir: outputs/ablations/stage27_shield_g060_m070
+policy: PPO
+observation:
+  temporal_history: 8
+  lidar_rays: 16
+  include_obstacle_state: true
+  obstacle_state_mode: threat_absolute
+arena:
+  size_m: [16.0, 16.0, 5.0]
+  obstacle_count: 12
+  obstacle_half_xy_m: [0.20, 0.35]
+  obstacle_height_m: [1.20, 2.80]
+  obstacle_speed_mps: [0.08, 0.15]
+  obstacle_motion_amplitude_m: 0.60
+  goal_distance_m: [6.0, 10.0]
+dynamics:
+  physics_hz: 240
+  decision_hz: 10
+  horizontal_speed_limit_mps: 1.0
+  vertical_speed_limit_mps: 0.4
+  horizontal_acceleration_limit_mps2: 1.5
+  vertical_acceleration_limit_mps2: 0.6
+  yaw_rate_limit_rps: 0.5
+  yaw_acceleration_limit_rps2: 1.0
+safety_projection:
+  enabled: true
+  horizon_s: 2.5
+  margin_m: 0.70
+  maximum_velocity_correction_mps: 0.60
+arrival:
+  landing_pad: true
+  approach_height_m: 1.5
+  slow_radius_m: 1.5
+  speed_tolerance_mps: 0.15
+  hold_time_s: 1.0
+autoland:
+  enabled: true
+  descent_speed_mps: 0.12
+  flare_height_m: 0.30
+  flare_speed_mps: 0.05
+  horizontal_tolerance_m: 0.20
+  touchdown_speed_tolerance_mps: 0.18
+  touchdown_tilt_tolerance_deg: 15.0
+  motor_disarm_time_s: 0.40
